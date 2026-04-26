@@ -5,14 +5,16 @@ services:
     region: oregon
     plan: free
 
-    buildCommand: pip install -r requirements.txt
+    buildCommand: bash build.sh
 
-    startCommand: bash -c 'playwright install chromium --with-deps && uvicorn main:app --host 0.0.0.0 --port $PORT'
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
 
     envVars:
       - key: GROQ_API_KEY
-        sync: false          # you will paste this value in the Render dashboard
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/project/src/.playwright-browsers
       - key: API_BASE
-        sync: false   # paste your Render service URL here, e.g. https://testsense.onrender.com
+        sync: false
