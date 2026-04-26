@@ -775,8 +775,8 @@
 </div>
 
 <script>
-// Empty string → relative URLs → works on localhost AND any deployed domain
-const API = '';
+// API base URL — injected by FastAPI from API_BASE env var (empty = same-origin)
+const API = '__API_BASE__';
 
 // ── State ─────────────────────────────────────────────────────
 const S = {

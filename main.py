@@ -1,7 +1,8 @@
 import asyncio
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pathlib import Path
 from models import (
     ChatRequest, ChatResponse,
@@ -64,7 +65,10 @@ def chat_endpoint(body: ChatRequest):
 def root():
     ui = Path(__file__).parent / "frontend" / "index.html"
     if ui.exists():
-        return FileResponse(ui)
+        api_base = os.environ.get("API_BASE", "").rstrip("/")
+        content = ui.read_text()
+        content = content.replace("__API_BASE__", api_base)
+        return HTMLResponse(content)
     return {"status": "TestSense API is running", "version": "1.0.0"}
 
 
