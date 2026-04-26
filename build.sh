@@ -8,7 +8,7 @@ export PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/src/.playwright-browsers
 mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
 
 echo ">>> Installing Playwright Chromium to: $PLAYWRIGHT_BROWSERS_PATH"
-playwright install chromium --with-deps
+playwright install chromium
 
 echo ">>> Verifying browser installation..."
 ls "$PLAYWRIGHT_BROWSERS_PATH"
