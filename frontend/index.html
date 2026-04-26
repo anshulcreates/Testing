@@ -58,13 +58,31 @@
       letter-spacing: 0.08em; color: var(--text-muted); padding: 8px 8px 4px;
     }
     .history-item {
-      padding: 9px 12px; border-radius: 8px; cursor: pointer;
-      font-size: 13px; color: var(--text-muted);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      transition: all 0.12s;
+      padding: 8px 10px; border-radius: 8px; cursor: pointer;
+      display: flex; flex-direction: column; gap: 2px;
+      transition: background 0.12s; position: relative;
     }
-    .history-item:hover { background: var(--surface); color: var(--text); }
-    .history-item.active { background: var(--surface); color: var(--text); }
+    .history-item:hover, .history-item.active { background: var(--surface); }
+    .history-item-row  { display: flex; align-items: center; gap: 6px; }
+    .history-item-title {
+      font-size: 13px; color: var(--text-muted); flex: 1; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      transition: color 0.12s;
+    }
+    .history-item.active .history-item-title { color: var(--text); }
+    .history-item:hover .history-item-title  { color: var(--text); }
+    .history-item-time { font-size: 10px; color: var(--text-muted); opacity: 0.55; padding-left: 1px; }
+    .history-del {
+      background: transparent; border: none; color: var(--text-muted);
+      cursor: pointer; padding: 2px 5px; border-radius: 3px;
+      font-size: 10px; opacity: 0; transition: opacity 0.15s; flex-shrink: 0;
+    }
+    .history-item:hover .history-del { opacity: 1; }
+    .history-del:hover { color: var(--red) !important; }
+    .history-empty {
+      font-size: 12px; color: var(--text-muted); opacity: 0.5;
+      padding: 10px 10px; text-align: center;
+    }
     .sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
     .api-status { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px; color: var(--text-muted); }
     .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
@@ -582,9 +600,8 @@
       New Test Session
     </button>
     <div class="sidebar-label">History</div>
-    <div id="historyList">
-      <div class="history-item active" id="currentSession">Current Session</div>
-    </div>
+    <div id="historyList"></div>
+    <div class="history-empty" id="historyEmpty">No sessions yet</div>
     <div class="sidebar-footer">
       <div class="api-status">
         <div class="status-dot" id="statusDot"></div>
@@ -763,6 +780,8 @@ const API = '';
 
 // ── State ─────────────────────────────────────────────────────
 const S = {
+  sessionId:    null,
+  screen:       'chat',
   requirements: '',
   chatHistory:  [],
   tests:        [],
@@ -785,6 +804,7 @@ const $statusTxt = document.getElementById('statusText');
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('load', () => {
   checkApi();
+  renderHistoryList();
   setTimeout(() => {
     bot("Hey! I'm **TestSense**, your AI QA engineer. 👋\n\nDescribe your app's features and I'll generate test cases, let you choose which ones to run, configure the environment, and execute them.\n\nFor example: *\"Login page has email and password. Valid credentials redirect to dashboard. Wrong password shows an error.\"*");
   }, 350);
@@ -812,6 +832,7 @@ async function checkApi() {
 const SCREEN_ORDER = ['chat', 'tests', 'config', 'results'];
 
 function goTo(screen) {
+  S.screen = screen;
   document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
   document.getElementById(`s-${screen}`).classList.add('active');
   $backBtn.classList.toggle('visible', screen !== 'chat');
@@ -846,17 +867,18 @@ function bot(text, extra = '') {
   div.innerHTML = `<div class="avatar bot">TS</div><div class="bubble"></div>`;
   $messages.appendChild(div);
   smartScroll();
-  typewrite(div.querySelector('.bubble'), text, extra);
+  typewrite(div.querySelector('.bubble'), text, extra, saveSession);
   return div.querySelector('.bubble');
 }
 
-function typewrite(el, rawText, extra = '') {
+function typewrite(el, rawText, extra = '', onDone = null) {
   const chars = [...rawText];
   const total = chars.length;
   if (!total) {
     el.innerHTML = md(rawText);
     if (extra) el.insertAdjacentHTML('beforeend', extra);
     smartScroll();
+    if (onDone) onDone();
     return;
   }
   // adaptive speed: target ~80 render ticks regardless of message length
@@ -874,6 +896,7 @@ function typewrite(el, rawText, extra = '') {
       el.innerHTML = md(rawText);
       if (extra) el.insertAdjacentHTML('beforeend', extra);
       smartScroll();
+      if (onDone) onDone();
     }
   }, 22);
 }
@@ -919,6 +942,7 @@ async function handleSend() {
   const text = $input.value.trim();
   if (!text || $input.disabled) return;
   $input.value = ''; $input.style.height = 'auto';
+  if (!S.sessionId) createSession();
   userMsg(text);
   lock('Thinking…');
   showTyping();
@@ -1136,8 +1160,7 @@ async function runTests() {
     }
 
     renderResults(data);
-    document.getElementById('currentSession').textContent =
-      `${S.env.url.replace(/https?:\/\//,'').split('/')[0]} · ${data.pass_rate}%`;
+    saveSession(`${S.env.url.replace(/https?:\/\//,'').split('/')[0]} · ${data.pass_rate}%`);
 
   } catch {
     document.getElementById('resultsTitle').textContent = 'Run Failed';
@@ -1215,15 +1238,156 @@ function toggleSteps(btn) {
 function resetAll() {
   $messages.innerHTML = '';
   $empty.style.display = '';
-  Object.assign(S, { requirements: '', chatHistory: [], tests: [], selected: new Set(), env: null });
+  Object.assign(S, { sessionId: null, screen: 'chat', requirements: '', chatHistory: [], tests: [], selected: new Set(), env: null });
   goTo('chat');
   unlock();
   $input.value = '';
-  document.getElementById('currentSession').textContent = 'Current Session';
+  renderHistoryList();
   setTimeout(() => {
     bot("Hey! I'm **TestSense**, your AI QA engineer. 👋\n\nDescribe your app's features and I'll generate and run tests for you.");
   }, 200);
   checkApi();
+}
+
+// ── Session Management ────────────────────────────────────────
+const SESSIONS_KEY = 'ts_sessions';
+const SESS_PFX     = 'ts_sess_';
+
+function getSessions() {
+  try { return JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function createSession() {
+  const id = `sess_${Date.now()}`;
+  S.sessionId = id;
+  const sessions = getSessions();
+  sessions.unshift({ id, title: 'New Session', createdAt: Date.now(), updatedAt: Date.now() });
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  renderHistoryList();
+  return id;
+}
+
+function saveSession(titleOverride) {
+  if (!S.sessionId) return;
+
+  // snapshot every visible message bubble
+  const msgs = [...$messages.querySelectorAll('.msg:not(#__typing__)')].map(el => ({
+    role: el.classList.contains('user') ? 'user' : 'bot',
+    html: el.querySelector('.bubble')?.innerHTML || '',
+  }));
+
+  // derive title from first user message if no override
+  const title = titleOverride || (() => {
+    for (const m of msgs) {
+      if (m.role === 'user') {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = m.html;
+        const t = (tmp.textContent || '').trim();
+        if (t && t !== '/create') return t.length > 38 ? t.slice(0, 38) + '…' : t;
+      }
+    }
+    return 'New Session';
+  })();
+
+  const now = Date.now();
+  const data = {
+    id: S.sessionId, title, updatedAt: now,
+    messages: msgs,
+    requirements: S.requirements,
+    chatHistory:  S.chatHistory,
+    tests:        S.tests,
+    selectedIds:  [...S.selected],
+    env:          S.env,
+  };
+  localStorage.setItem(`${SESS_PFX}${S.sessionId}`, JSON.stringify(data));
+
+  // update index
+  const sessions = getSessions();
+  const idx = sessions.findIndex(s => s.id === S.sessionId);
+  if (idx >= 0) {
+    sessions[idx] = { ...sessions[idx], title, updatedAt: now };
+  } else {
+    sessions.unshift({ id: S.sessionId, title, createdAt: now, updatedAt: now });
+  }
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  renderHistoryList();
+}
+
+function loadSession(id) {
+  try {
+    const raw = localStorage.getItem(`${SESS_PFX}${id}`);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+
+    // restore state
+    Object.assign(S, {
+      sessionId:    id,
+      screen:       'chat',
+      requirements: data.requirements || '',
+      chatHistory:  data.chatHistory  || [],
+      tests:        data.tests        || [],
+      selected:     new Set(data.selectedIds || []),
+      env:          data.env          || null,
+    });
+
+    // restore chat messages without typewriter
+    $messages.innerHTML = '';
+    $empty.style.display = 'none';
+    (data.messages || []).forEach(m => {
+      const div = document.createElement('div');
+      div.className = `msg ${m.role}`;
+      div.innerHTML = `<div class="avatar ${m.role === 'user' ? 'user' : 'bot'}">${m.role === 'user' ? 'U' : 'TS'}</div><div class="bubble">${m.html}</div>`;
+      $messages.appendChild(div);
+    });
+
+    goTo('chat');
+    unlock('Enter to send · Shift+Enter for new line');
+    $chatArea.scrollTop = $chatArea.scrollHeight;
+    renderHistoryList();
+  } catch(e) {
+    console.error('Session restore failed', e);
+  }
+}
+
+function deleteSession(id, e) {
+  e.stopPropagation();
+  localStorage.removeItem(`${SESS_PFX}${id}`);
+  const sessions = getSessions().filter(s => s.id !== id);
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  if (S.sessionId === id) resetAll();
+  else renderHistoryList();
+}
+
+function renderHistoryList() {
+  const sessions = getSessions();
+  const list  = document.getElementById('historyList');
+  const empty = document.getElementById('historyEmpty');
+  if (!sessions.length) {
+    list.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  list.innerHTML = sessions.map(s => `
+    <div class="history-item ${s.id === S.sessionId ? 'active' : ''}" onclick="loadSession('${s.id}')">
+      <div class="history-item-row">
+        <span class="history-item-title">${esc(s.title)}</span>
+        <button class="history-del" onclick="deleteSession('${s.id}',event)">✕</button>
+      </div>
+      <div class="history-item-time">${relTime(s.updatedAt || s.createdAt)}</div>
+    </div>`).join('');
+}
+
+function relTime(ts) {
+  const d = Date.now() - ts;
+  if (d < 60000)     return 'just now';
+  if (d < 3600000)   return `${Math.floor(d / 60000)}m ago`;
+  if (d < 86400000)  return `${Math.floor(d / 3600000)}h ago`;
+  if (d < 172800000) return 'Yesterday';
+  const dt = new Date(ts);
+  if (d < 604800000) return dt.toLocaleDateString('en', { weekday: 'short' });
+  return dt.toLocaleDateString('en', { month: 'short', day: 'numeric' });
 }
 
 // ── Modal ─────────────────────────────────────────────────────
