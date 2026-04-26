@@ -14,7 +14,7 @@ def validate_environment(env):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         try:
-            response = page.goto(env.url, timeout=12000)
+            response = page.goto(env.url, timeout=30000, wait_until="domcontentloaded")
             status   = response.status if response else 0
             title    = page.title()
 
@@ -245,8 +245,8 @@ def execute_step(page: Page, step: str, env: Environment, step_num: int) -> Step
             url_match = re.search(r"`([^`]+)`", s)
             if url_match:
                 url = _resolve_url(url_match.group(1), env.url)
-                page.goto(url, timeout=15000)
-                page.wait_for_load_state("domcontentloaded", timeout=10000)
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                page.wait_for_load_state("domcontentloaded", timeout=15000)
                 return StepLog(step_number=step_num, step=s, success=True,
                                log=f"Navigated to {url} | Title: {page.title()}")
             return StepLog(step_number=step_num, step=s, success=False,
